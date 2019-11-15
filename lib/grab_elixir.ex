@@ -9,18 +9,23 @@ defmodule GrabElixir do
         |> Enum.map(fn body ->
           post = Floki.raw_html(body)
 
-          [
-            {"a", [{"itemprop", "url"}, {"href", link}],
-             [{"span", [{"itemprop", "name"}], [username]}]}
-          ] = Floki.find(post, "span.creator a")
+          with [
+                 {"a", [{"itemprop", "url"}, {"href", link}],
+                  [{"span", [{"itemprop", "name"}], [username]}]}
+               ] <- Floki.find(post, "span.creator a") do
+            post_body =
+              post
+              |> Floki.find("div.post")
+              |> Floki.raw_html()
 
-          post_body =
-            post
-            |> Floki.find("div.post")
-            |> Floki.raw_html()
-
-          {username, link, post_body}
+            {username, link, post_body}
+          else
+            _result ->
+              # TODO: add recursion to load the next page
+              nil
+          end
         end)
+        |> Enum.reject(&is_nil(&1))
 
       message_bodies =
         Enum.reduce(messages, %{}, fn {username, _link, post_body}, acc ->
