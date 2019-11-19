@@ -1,45 +1,60 @@
 defmodule GrabElixir do
-  @url "https://elixirforum.com/t/i-want-to-teach-some-elixir-any-volunteers-to-be-taught/26750"
+  @base_url "https://elixirforum.com"
+  @url @base_url <> "/t/i-want-to-teach-some-elixir-any-volunteers-to-be-taught/26750"
 
-  def run do
-    with {:ok, response} <- HTTPoison.get(@url) do
-      messages =
-        response.body
-        |> Floki.find("div.topic-body")
-        |> Enum.map(fn body ->
-          post = Floki.raw_html(body)
+  def run(url \\ @url) do
+    messages =
+      messages(url)
+      |> List.flatten()
 
-          with [
-                 {"a", [{"itemprop", "url"}, {"href", link}],
-                  [{"span", [{"itemprop", "name"}], [username]}]}
-               ] <- Floki.find(post, "span.creator a") do
-            post_body =
-              post
-              |> Floki.find("div.post")
-              |> Floki.raw_html()
+    message_bodies =
+      Enum.reduce(messages, %{}, fn {username, _link, post_body}, acc ->
+        # note that bodies will be in reverse order as result
+        Map.put(acc, username, [post_body | Map.get(acc, username) || []])
+      end)
 
-            {username, link, post_body}
-          else
-            _result ->
-              # TODO: add recursion to load the next page
-              nil
-          end
-        end)
-        |> Enum.reject(&is_nil(&1))
+    user_links =
+      Enum.map(messages, fn {username, link, _post_body} ->
+        {username, link}
+      end)
+      |> Enum.uniq()
 
-      message_bodies =
-        Enum.reduce(messages, %{}, fn {username, _link, post_body}, acc ->
-          # note that bodies will be in reverse order as result
-          Map.put(acc, username, [post_body | Map.get(acc, username) || []])
-        end)
+    {user_links, message_bodies}
+  end
 
-      user_links =
-        Enum.map(messages, fn {username, link, _post_body} ->
-          {username, link}
-        end)
-        |> Enum.uniq()
+  defp messages(url) do
+    with {:ok, response} <- HTTPoison.get(url) do
+      response.body
+      |> Floki.find("div.topic-body")
+      |> Enum.map(fn body ->
+        post = Floki.raw_html(body)
 
-      {user_links, message_bodies}
+        with [
+               {"a", [{"itemprop", "url"}, {"href", link}],
+                [{"span", [{"itemprop", "name"}], [username]}]}
+             ] <- Floki.find(post, "span.creator a") do
+          post_body =
+            post
+            |> Floki.find("div.post")
+            |> Floki.raw_html()
+
+          {username, link, post_body}
+        else
+          _result ->
+            post
+            |> Floki.find("div.crawler-post a")
+            |> parse_next_page()
+        end
+      end)
+      |> Enum.reject(&is_nil(&1))
     end
   end
+
+  defp parse_next_page([
+         {"a", [{"rel", "next"}, {"itemprop", "url"}, {"href", next_page_path}], _}
+       ]) do
+    messages(@base_url <> next_page_path)
+  end
+
+  defp parse_next_page(_), do: nil
 end
