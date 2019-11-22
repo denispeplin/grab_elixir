@@ -23,23 +23,27 @@ defmodule GrabElixir do
   end
 
   defp messages(url) do
-    with {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} <- HTTPoison.get(url) do
-      response_body
-      |> get_topic_from_body()
-      |> Enum.map(fn body ->
-        post = Floki.raw_html(body)
+    url
+    |> fetch_page
+    |> get_topic_from_body()
+    |> Enum.map(fn body ->
+      post = Floki.raw_html(body)
 
-        with {link, username} <- get_user_link_and_username(post) do
-          post_body = get_post_body(post)
+      with {link, username} <- get_user_link_and_username(post) do
+        post_body = get_post_body(post)
 
-          {username, link, post_body}
-        else
-          _result ->
-            parse_next_page(post)
-        end
-      end)
-      |> Enum.reject(&is_nil(&1))
-    end
+        {username, link, post_body}
+      else
+        _result ->
+          parse_next_page(post)
+      end
+    end)
+    |> Enum.reject(&is_nil(&1))
+  end
+
+  defp fetch_page(url) do
+    {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} = HTTPoison.get(url)
+    response_body
   end
 
   defp get_topic_from_body(response_body) do
