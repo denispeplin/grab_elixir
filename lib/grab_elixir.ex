@@ -23,38 +23,55 @@ defmodule GrabElixir do
   end
 
   defp messages(url) do
-    with {:ok, response} <- HTTPoison.get(url) do
-      response.body
-      |> Floki.find("div.topic-body")
+    with {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} <- HTTPoison.get(url) do
+      response_body
+      |> get_topic_from_body()
       |> Enum.map(fn body ->
         post = Floki.raw_html(body)
 
-        with [
-               {"a", [{"itemprop", "url"}, {"href", link}],
-                [{"span", [{"itemprop", "name"}], [username]}]}
-             ] <- Floki.find(post, "span.creator a") do
-          post_body =
-            post
-            |> Floki.find("div.post")
-            |> Floki.raw_html()
+        with {link, username} <- get_user_link_and_username(post) do
+          post_body = get_post_body(post)
 
           {username, link, post_body}
         else
           _result ->
-            post
-            |> Floki.find("div.crawler-post a")
-            |> parse_next_page()
+            parse_next_page(post)
         end
       end)
       |> Enum.reject(&is_nil(&1))
     end
   end
 
-  defp parse_next_page([
+  defp get_topic_from_body(response_body) do
+    Floki.find(response_body, "div.topic-body")
+  end
+
+  defp get_user_link_and_username(post) do
+    with [
+           {"a", [{"itemprop", "url"}, {"href", link}],
+            [{"span", [{"itemprop", "name"}], [username]}]}
+         ] <- Floki.find(post, "span.creator a") do
+      {link, username}
+    end
+  end
+
+  defp get_post_body(post) do
+    post
+    |> Floki.find("div.post")
+    |> Floki.raw_html()
+  end
+
+  defp parse_next_page(post) do
+    post
+    |> Floki.find("div.crawler-post a")
+    |> do_parse_next_page()
+  end
+
+  defp do_parse_next_page([
          {"a", [{"rel", "next"}, {"itemprop", "url"}, {"href", next_page_path}], _}
        ]) do
     messages(@base_url <> next_page_path)
   end
 
-  defp parse_next_page(_), do: nil
+  defp do_parse_next_page(_), do: nil
 end
